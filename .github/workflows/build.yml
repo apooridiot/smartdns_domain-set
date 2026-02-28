@@ -1,0 +1,69 @@
+name: Build SmartDNS domain-set files
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 22 * * *"
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/README.md"
+
+permissions:
+  contents: write
+  packages: write
+  actions: write
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set variables
+        run: |
+          echo "Loyalsoldier_direct=https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/direct-list.txt" >> $GITHUB_ENV
+          echo "Loyalsoldier_proxy=https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/proxy-list.txt" >> $GITHUB_ENV
+          echo "Loyalsoldier_apple_cn=https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/apple-cn.txt" >> $GITHUB_ENV
+          echo "Loyalsoldier_google_cn=https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/google-cn.txt" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate direct-list.txt file
+        run: |
+          curl -sSL ${Loyalsoldier_direct} | grep -Ev "^(regexp|keyword):" | perl -ne '/^(full:)([-_a-zA-Z0-9]+(\.[-_a-zA-Z0-9]+)*)/ && print "-.$2\n"' > direct-list.txt
+          curl -sSL ${Loyalsoldier_direct} | grep -Ev "^(regexp|keyword|full):" | perl -ne '/^(domain:)?([-_a-zA-Z0-9]+\.[-_a-zA-Z0-9]+(\.[-_a-zA-Z0-9]+)*)/ && print "$2\n"' >> direct-list.txt
+
+      - name: Generate proxy-list.txt file
+        run: |
+          curl -sSL ${Loyalsoldier_proxy} | grep -Ev "^(regexp|keyword):" | perl -ne '/^(full:)([-_a-zA-Z0-9]+(\.[-_a-zA-Z0-9]+)*)/ && print "-.$2\n"' > proxy-list.txt
+          curl -sSL ${Loyalsoldier_proxy} | grep -Ev "^(regexp|keyword|full):" | perl -ne '/^(domain:)?([-_a-zA-Z0-9]+\.[-_a-zA-Z0-9]+(\.[-_a-zA-Z0-9]+)*)/ && print "$2\n"' >> proxy-list.txt
+      
+      - name: Generate google-cn.txt file
+        run: |
+          curl -sSL ${Loyalsoldier_google_cn} | grep -E "^full:" | awk -F ':' '{printf "-.%s\n", $2}' > google-cn.txt
+          curl -sSL ${Loyalsoldier_google_cn} | grep -E "^domain:" | awk -F ':' '{printf "%s\n", $2}' >> google-cn.txt
+
+      - name: Generate apple-cn.txt file
+        run: |
+          curl -sSL ${Loyalsoldier_apple_cn} | grep -E "^full:" | awk -F ':' '{printf "-.%s\n", $2}' > apple-cn.txt
+          curl -sSL ${Loyalsoldier_apple_cn} | grep -E "^domain:" | awk -F ':' '{printf "%s\n", $2}' >> apple-cn.txt
+          git checkout --orphan tmp_work
+          git branch -d main
+
+      - name: Upload to repository
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          create_branch: true
+          branch: main
+          push_options: --force
+
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 0
+          delete_run_by_conclusion_pattern: "cancelled, skipped, success"
